@@ -1,5 +1,5 @@
 # Это пример файла с определением признаков (feature definition)
-
+import datetime
 import os
 
 from datetime import timedelta
@@ -19,7 +19,7 @@ from feast import (
 from feast.feature_logging import LoggingConfig
 from feast.infra.offline_stores.file_source import FileLoggingDestination
 from feast.on_demand_feature_view import on_demand_feature_view
-from feast.types import Float32, Float64, Int64
+from feast.types import Float32, Float64, Int64, UnixTimestamp
 
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(REPO_PATH, "data")
@@ -177,3 +177,55 @@ driver_activity_v4 = FeatureService(
         driver_performance_metrics  # Добавляем новые метрики в сервис
     ]
 )
+
+
+
+driver_trips_with_timestamp_fv = FeatureView(
+    # Уникальное имя этого представления признаков. Два представления признаков
+    # в одном проекте не могут иметь одинаковое имя
+    name="driver_trips_with_timestamp",
+    entities=[driver],
+    ttl=timedelta(days=1),
+    schema=[
+        Field(name="event_timestamp", dtype=UnixTimestamp),
+        Field(name="avg_daily_trips", dtype=Int64, description="Среднее количество поездок в день"),
+    ],
+    online=True,
+    source=driver_stats_source,
+    # Теги - это определенные пользователем пары ключ/значение,
+    # которые прикрепляются к каждому представлению признаков
+    tags={"team": "driver_performance"},
+)
+
+driver_conv_rate_with_timestamp_fv = FeatureView(
+    # Уникальное имя этого представления признаков. Два представления признаков
+    # в одном проекте не могут иметь одинаковое имя
+    name="driver_conv_rate_with_timestamp",
+    entities=[driver],
+    ttl=timedelta(days=1),
+    schema=[
+        Field(name="conv_rate", dtype=Float32),
+        Field(name="avg_daily_trips", dtype=Int64, description="Среднее количество поездок в день"),
+    ],
+    online=True,
+    source=driver_stats_source,
+    # Теги - это определенные пользователем пары ключ/значение,
+    # которые прикрепляются к каждому представлению признаков
+    tags={"team": "driver_performance"},
+)
+
+
+# Определяем представление признаков по требованию, которое может генерировать
+# новые признаки на основе существующих представлений и признаков из RequestSource
+@on_demand_feature_view(
+    sources=[driver_stats_fv, input_request],
+    schema=[
+        Field(name="conv_rate_minus_val1", dtype=Float64),
+        Field(name="conv_rate_minus_val2", dtype=Float64),
+    ],
+)
+def minus_conv_rate(inputs: pd.DataFrame) -> pd.DataFrame:
+    df = pd.DataFrame()
+    df["conv_rate_minus_val1"] = inputs["conv_rate"] - inputs["val_to_add"]
+    df["conv_rate_minus_val2"] = inputs["conv_rate"] - inputs["val_to_add_2"]
+    return df
